@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/apikit" xmlns:context="http://www.springframework.org/schema/context" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:spring="http://www.springframework.org/schema/beans" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/apikit http://www.mulesoft.org/schema/mule/apikit/current/mule-apikit.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.1.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd">
+    <http:listener-config name="daas_experience_api-httpListenerConfig" host="0.0.0.0" port="${http.port}" doc:name="HTTP Listener Configuration" />
+    <apikit:config name="daas_experience_api-config" raml="daas_experience_api.raml" consoleEnabled="false" doc:name="Router" />
+    <http:request-config name="Runner_HTTP_Request_Configuration" host="${runner.system.http.host}" port="${runner.system.http.port}"  doc:name="HTTP Request Configuration" />
+    <http:request-config name="Shadowfax_HTTP_Request_Configuration" host="${shadowfax.system.http.host}" port="${shadowfax.system.http.port}"  doc:name="HTTP Request Configuration" />
+    <context:property-placeholder location="properties/daas-service-shipment-experience-api.properties,properties/daas-service-shipment-experience-api-${mule.env}.properties" />
+    <flow name="daas-experience-api-main-flow">
+        <http:listener config-ref="daas_experience_api-httpListenerConfig" path="/*" doc:name="invoke daas experience api" />
+        <set-session-variable variableName="messageId" value="#[message.inboundProperties.messageId == null ? message.id : message.inboundProperties.messageId] " doc:name="Set Message Id"/>
+        <apikit:router config-ref="daas_experience_api-config" doc:name="APIkit Router" />
+        <exception-strategy ref="global-exception-Strategy" doc:name="Reference Exception Strategy" />
+    </flow>
+    <flow name="daas-experience-api-console">
+        <http:listener config-ref="daas_experience_api-httpListenerConfig" path="/console/*" doc:name="HTTP" />
+        <apikit:console config-ref="daas_experience_api-config" doc:name="APIkit Console" />
+    </flow>
+    <flow name="post:/daasproviders:application/json:daas_experience_api-config">
+        <logger message="Flow name is : #[mule:context.serviceName]" level="INFO" doc:name="Log Flow Name" />
+        <message-properties-transformer doc:name="Message Properties" scope="invocation">
+            <add-message-property key="vOperationType" value="#[message.inboundProperties.'http.query.params'.operationType]" />
+            <add-message-property key="vDeliveryProviderName" value="#[message.inboundProperties.'http.query.params'.delivery_providername]" />
+        </message-properties-transformer>
+        <logger message="'The Query param operation_type is ' #[flowVars.vOperationType]  and delivery_providername is #[flowVars.vDeliveryProviderName] " level="INFO" doc:name="Log QueryParam" />
+
+        <choice doc:name="Check the Operation">
+            <when expression="#[flowVars.vDeliveryProviderName == 'runnr' &amp;&amp; flowVars.vOperationType == 'create_shipment']">
+                <flow-ref name="runner-subflow" doc:name="runner-subflow" />
+            </when>
+            <otherwise>
+                <flow-ref name="shadowfax-subflow" doc:name="shadowfax-subflow" />
+            </otherwise>
+        </choice>
+        <exception-strategy ref="global-exception-Strategy" doc:name="Reference Exception Strategy" />
+    </flow>
+
+    <sub-flow name="runner-subflow">
+        <logger message="Sub Flow Name is: create-shipment-subflow" level="INFO" doc:name="Log_subFlow" />
+        <logger message="Payload before Invoke runner System API-- #[payload]" level="INFO" doc:name="Log Payload" />
+        <http:request config-ref="Runner_HTTP_Request_Configuration" path="${runner.system.path}" method="${runner.system.method}" doc:name="Invoke runner System API">
+            <http:request-builder>
+                <http:query-param paramName="operationType" value="#[flowVars.vOperationType]"/>
+                <http:query-param paramName="delivery_providername" value="#[flowVars.vDeliveryProviderName]"/>
+                <http:header headerName="messageID" value="#[message.id]"/>
+
+            </http:request-builder>
+        </http:request>
+    </sub-flow>
+    <sub-flow name="shadowfax-subflow">
+        <logger message="Sub Flow Name is: service-availablity-subflow" level="INFO" doc:name="Log_subFlow" />
+        <logger message="Payload before invoke shadowfax System API-- #[payload]" level="INFO" doc:name="Log Payload" />
+        <http:request config-ref="Shadowfax_HTTP_Request_Configuration" path="${shadowfax.system.path}" method="${shadowfax.system.method}" doc:name="invoke shadowfax System API">
+            <http:request-builder>
+                <http:query-param paramName="operationType" value="#[flowVars.vOperationType]"/>
+                <http:query-param paramName="delivery_providername" value="#[flowVars.vDeliveryProviderName]"/>
+                <http:header headerName="messageId" value="#[message.id]"/>
+
+            </http:request-builder>
+        </http:request>
+    </sub-flow>
+</mule>
